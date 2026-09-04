@@ -28,14 +28,14 @@ const FIXED_USERNAMES = [
 ];
 
 const ROLE_META = {
-  villager:     { label: 'Dân làng',          team: 'villager' },
-  werewolf:     { label: 'Ma Sói',            team: 'wolf' },
-  cursed:       { label: 'Kẻ bị nguyền rủa',  team: 'villager' },
-  seer:         { label: 'Tiên tri',          team: 'villager' },
-  witch:        { label: 'Phù thủy',          team: 'villager' },
-  hunter:       { label: 'Thợ săn',           team: 'villager' },
-  doppelganger: { label: 'Người nhân bản',    team: 'villager' },
-  guard:        { label: 'Bảo vệ',            team: 'villager' },
+  villager: { label: 'Dân làng', team: 'villager' },
+  werewolf: { label: 'Ma Sói', team: 'wolf' },
+  cursed: { label: 'Kẻ bị nguyền rủa', team: 'villager' },
+  seer: { label: 'Tiên tri', team: 'villager' },
+  witch: { label: 'Phù thủy', team: 'villager' },
+  hunter: { label: 'Thợ săn', team: 'villager' },
+  doppelganger: { label: 'Người nhân bản', team: 'villager' },
+  guard: { label: 'Bảo vệ', team: 'villager' },
 };
 const SPECIAL_ROLES = ['cursed', 'seer', 'witch', 'hunter', 'guard', 'doppelganger'];
 
@@ -155,44 +155,56 @@ function sendTurnNotice(step) {
 
   if (step === 'hunter') {
     const u = aliveWithRole('hunter')[0];
-    const payload = { step, round: state.round, options: alive.filter((x) => x !== u),
-      message: 'Chọn một người để "kéo theo" nếu bạn chết sau này.' };
+    const payload = {
+      step, round: state.round, options: alive.filter((x) => x !== u),
+      message: 'Chọn một người để "kéo theo" nếu bạn chết sau này.'
+    };
     state.turnPayloadByUser[u] = payload;
     emitTo(u, 'your_turn', payload);
   } else if (step === 'doppelganger') {
     const u = aliveWithRole('doppelganger')[0];
-    const payload = { step, round: state.round, options: alive.filter((x) => x !== u),
-      message: 'Chọn một người để nhân bản.' };
+    const payload = {
+      step, round: state.round, options: alive.filter((x) => x !== u),
+      message: 'Chọn một người để nhân bản.'
+    };
     state.turnPayloadByUser[u] = payload;
     emitTo(u, 'your_turn', payload);
   } else if (step === 'guard') {
     const u = aliveWithRole('guard')[0];
     const forbidden = state.players[u].guardLastTarget;
-    const payload = { step, round: state.round, options: alive, forbiddenTarget: forbidden,
-      message: 'Chọn một người để bảo vệ đêm nay.' };
+    const payload = {
+      step, round: state.round, options: alive, forbiddenTarget: forbidden,
+      message: 'Chọn một người để bảo vệ đêm nay.'
+    };
     state.turnPayloadByUser[u] = payload;
     emitTo(u, 'your_turn', payload);
   } else if (step === 'wolves') {
     const wolves = aliveWithRole('werewolf');
     const targets = alive.filter((x) => team(x) !== 'wolf');
     wolves.forEach((u) => {
-      const payload = { step, round: state.round, options: targets, teammates: wolves,
-        votes: state.wolfVotes, message: 'Cùng bàn bạc và chọn một người để cắn (phải đồng thuận).' };
+      const payload = {
+        step, round: state.round, options: targets, teammates: wolves,
+        votes: state.wolfVotes, message: 'Cùng bàn bạc và chọn một người để cắn (phải đồng thuận).'
+      };
       state.turnPayloadByUser[u] = payload;
       emitTo(u, 'your_turn', payload);
     });
   } else if (step === 'seer') {
     const u = aliveWithRole('seer')[0];
-    const payload = { step, round: state.round, options: alive.filter((x) => x !== u),
-      message: 'Chọn một người để soi phe.' };
+    const payload = {
+      step, round: state.round, options: alive.filter((x) => x !== u),
+      message: 'Chọn một người để soi phe.'
+    };
     state.turnPayloadByUser[u] = payload;
     emitTo(u, 'your_turn', payload);
   } else if (step === 'witch') {
     const u = aliveWithRole('witch')[0];
     const p = state.players[u];
-    const payload = { step, round: state.round, options: alive,
+    const payload = {
+      step, round: state.round, options: alive,
       canHeal: !p.witchHealUsed, canKill: !p.witchKillUsed,
-      message: 'Bạn có thể cứu, giết, hoặc không làm gì. Bạn KHÔNG biết đêm nay có ai bị cắn hay không.' };
+      message: 'Bạn có thể cứu, giết, hoặc không làm gì. Bạn KHÔNG biết đêm nay có ai bị cắn hay không.'
+    };
     state.turnPayloadByUser[u] = payload;
     emitTo(u, 'your_turn', payload);
   }
@@ -601,7 +613,11 @@ io.on('connection', (socket) => {
 
   socket.on('disconnect', () => {
     const u = socket.data.username;
-    if (u) { room.online[u] = false; broadcastLobby(); }
+    // Chỉ đánh dấu offline nếu chưa có kết nối mới hơn (vd sau khi reload) đã login đè lên username này
+    if (u && room.sockets[u] === socket.id) {
+      room.online[u] = false;
+      broadcastLobby();
+    }
   });
 });
 
