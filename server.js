@@ -245,6 +245,13 @@ function resolveNight() {
   // Thợ săn: nếu người bị nối chết trong đêm này, người bị kéo theo chắc chắn chết
   applyHunterDrag(deaths);
 
+  // Thợ săn bị vote chết đêm/ngày trước đó: người bị kéo theo chết vào sáng nay
+  if (state.pendingHunterExecuteDrag) {
+    const dragT = state.pendingHunterExecuteDrag;
+    if (state.players[dragT] && state.players[dragT].alive) deaths.add(dragT);
+    state.pendingHunterExecuteDrag = null;
+  }
+
   for (const d of deaths) state.players[d].alive = false;
 
   refreshDoppelPending();
@@ -376,10 +383,14 @@ function tallyExecuteVotes() {
   if (kill > spare) {
     state.players[target].alive = false;
     deaths.push(target);
-    const deathSet = new Set(deaths);
-    applyHunterDrag(deathSet);
-    deaths = Array.from(deathSet);
-    for (const d of deaths) state.players[d].alive = false;
+
+    // Thợ săn bị vote chết: KHÔNG kéo người bị nối chết ngay (tránh lộ ngay là thợ săn).
+    // Người bị nối sẽ chết vào đêm kế tiếp (khi resolveNight() chạy, tức sáng hôm sau).
+    const tp = state.players[target];
+    if (tp.role === 'hunter' && tp.hunterHasPicked && tp.hunterDragTarget) {
+      state.pendingHunterExecuteDrag = tp.hunterDragTarget;
+    }
+
     refreshDoppelPending();
   }
   io.emit('execute_result', { executed: deaths.length > 0, deaths });
@@ -489,6 +500,7 @@ io.on('connection', (socket) => {
       witchAction: null, guardChosenTarget: null,
       dayVotes: {}, executeVotes: {}, accusedUsername: null,
       turnPayloadByUser: {}, winner: null, lastNightDeaths: [], lastConverted: null,
+      pendingHunterExecuteDrag: null,
     };
 
     io.emit('game_started');
