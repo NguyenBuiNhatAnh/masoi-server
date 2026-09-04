@@ -627,7 +627,9 @@ io.on('connection', (socket) => {
 
   socket.on('disconnect', () => {
     const u = socket.data.username;
-    if (u) {
+    // Chỉ đánh dấu offline nếu socket ngắt kết nối này vẫn đang là socket hiện tại của user
+    // (tránh trường hợp reload: socket mới đã login trước khi socket cũ kịp bắn sự kiện disconnect)
+    if (u && room.sockets[u] === socket.id) {
       room.online[u] = false;
       room.voiceOn[u] = false;
       io.emit('voice_state_update', { voiceOn: room.voiceOn });
