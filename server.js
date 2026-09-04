@@ -627,12 +627,18 @@ io.on('connection', (socket) => {
 
   socket.on('disconnect', () => {
     const u = socket.data.username;
-    // Chỉ đánh dấu offline nếu socket ngắt kết nối này vẫn đang là socket hiện tại của user
-    // (tránh trường hợp reload: socket mới đã login trước khi socket cũ kịp bắn sự kiện disconnect)
     if (u && room.sockets[u] === socket.id) {
       room.online[u] = false;
       room.voiceOn[u] = false;
       io.emit('voice_state_update', { voiceOn: room.voiceOn });
+
+      // Nếu không còn ai online nữa, bỏ trống chủ phòng
+      // -> người đăng nhập tiếp theo sẽ tự động thành chủ phòng mới
+      const stillHasOnline = Object.values(room.online).some((v) => v);
+      if (!stillHasOnline) {
+        room.hostUsername = null;
+      }
+
       broadcastLobby();
     }
   });
