@@ -49,7 +49,7 @@ let room = {
 };
 
 function freshRoom() {
-  room = { hostUsername: null, sockets: {}, online: {}, config: null, game: null };
+  room = { hostUsername: null, sockets: {}, online: {}, config: null, game: null, voiceOn: {} };
 }
 
 function shuffle(arr) {
@@ -73,6 +73,7 @@ function broadcastLobby() {
     hostUsername: room.hostUsername,
     config: room.config,
     gameStarted: !!room.game && room.game.status !== 'ended',
+    voiceOn: room.voiceOn
   });
 }
 
@@ -611,11 +612,25 @@ io.on('connection', (socket) => {
     broadcastLobby();
   });
 
+  socket.on('voice_signal', ({ to, data }) => {
+    const from = socket.data.username;
+    if (!from || !to) return;
+    emitTo(to, 'voice_signal', { from, data });
+  });
+
+  socket.on('voice_mic_state', ({ on }) => {
+    const u = socket.data.username;
+    if (!u) return;
+    room.voiceOn[u] = !!on;
+    io.emit('voice_state_update', { voiceOn: room.voiceOn });
+  });
+
   socket.on('disconnect', () => {
     const u = socket.data.username;
-    // Chỉ đánh dấu offline nếu chưa có kết nối mới hơn (vd sau khi reload) đã login đè lên username này
-    if (u && room.sockets[u] === socket.id) {
+    if (u) {
       room.online[u] = false;
+      room.voiceOn[u] = false;
+      io.emit('voice_state_update', { voiceOn: room.voiceOn });
       broadcastLobby();
     }
   });
