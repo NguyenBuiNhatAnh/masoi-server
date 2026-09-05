@@ -92,12 +92,12 @@ function checkWinCondition() {
   return null;
 }
 
-function buildRoleList(cfg) {
+function buildRoleList(cfg, totalPlayers) {
   let roles = [];
   for (let i = 0; i < cfg.villagerCount; i++) roles.push('villager');
   for (let i = 0; i < cfg.wolfCount; i++) roles.push('werewolf');
-  let remaining = 8 - roles.length;
-  if (remaining < 0) throw new Error('Tổng số dân + sói vượt quá 8');
+  let remaining = totalPlayers - roles.length;
+  if (remaining < 0) throw new Error(`Tổng số dân + sói (${roles.length}) vượt quá số người đang online (${totalPlayers})`);
   const enabled = shuffle(cfg.enabledSpecialRoles.filter((r) => SPECIAL_ROLES.includes(r)));
   const specialToUse = enabled.slice(0, remaining);
   roles.push(...specialToUse);
@@ -493,15 +493,19 @@ io.on('connection', (socket) => {
     const u = socket.data.username;
     if (!u || u !== room.hostUsername) return;
     if (!room.config) { socket.emit('error_message', { message: 'Chủ phòng chưa thiết lập cấu hình.' }); return; }
-    const allOnline = FIXED_USERNAMES.every((name) => room.online[name]);
-    if (!allOnline) { socket.emit('error_message', { message: 'Cần đủ 8 người online mới bắt đầu được.' }); return; }
+
+    const onlineList = FIXED_USERNAMES.filter((name) => room.online[name]);
+    if (onlineList.length < 3) {
+      socket.emit('error_message', { message: 'Cần tối thiểu 3 người online mới bắt đầu được.' });
+      return;
+    }
 
     let roles;
-    try { roles = buildRoleList(room.config); }
+    try { roles = buildRoleList(room.config, onlineList.length); }
     catch (e) { socket.emit('error_message', { message: e.message }); return; }
 
     const players = {};
-    FIXED_USERNAMES.forEach((name, i) => {
+    onlineList.forEach((name, i) => {
       players[name] = {
         role: roles[i], alive: true, wasCursed: false,
         guardLastTarget: null,
@@ -522,8 +526,8 @@ io.on('connection', (socket) => {
       pendingHunterExecuteDrag: null,
     };
 
-    io.emit('game_started');
-    FIXED_USERNAMES.forEach((name) => {
+    io.emit('game_started', { players: onlineList });
+    onlineList.forEach((name) => {
       emitTo(name, 'your_role', {
         role: players[name].role, label: ROLE_META[players[name].role].label, team: ROLE_META[players[name].role].team,
       });
