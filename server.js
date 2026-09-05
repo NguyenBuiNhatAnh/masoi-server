@@ -131,7 +131,7 @@ function startNight() {
   state.nightStep = null;
   state.wolfVotes = {};
   state.wolfTarget = null;
-  state.witchAction = null;
+  state.witchActions = [];
   state.guardChosenTarget = null;
   state.turnPayloadByUser = {};
   state.pendingSteps = buildNightSteps();
@@ -143,7 +143,10 @@ function advanceNightStep() {
   const state = g();
   state.turnPayloadByUser = {};
   if (state.pendingSteps.length === 0) {
-    resolveNight();
+    // Đợi 6s sau khi người cuối cùng thực hiện chức năng xong rồi mới báo kết quả đêm + mở vote
+    setTimeout(() => {
+      if (room.game && room.game.status === 'night') resolveNight();
+    }, 6000);
     return;
   }
   state.nightStep = state.pendingSteps.shift();
@@ -199,16 +202,26 @@ function sendTurnNotice(step) {
     state.turnPayloadByUser[u] = payload;
     emitTo(u, 'your_turn', payload);
   } else if (step === 'witch') {
-    const u = aliveWithRole('witch')[0];
-    const p = state.players[u];
-    const payload = {
-      step, round: state.round, options: alive,
-      canHeal: !p.witchHealUsed, canKill: !p.witchKillUsed,
-      message: 'Bạn có thể cứu, giết, hoặc không làm gì. Bạn KHÔNG biết đêm nay có ai bị cắn hay không.'
-    };
-    state.turnPayloadByUser[u] = payload;
-    emitTo(u, 'your_turn', payload);
+    sendWitchTurnNotice();
   }
+}
+
+function sendWitchTurnNotice() {
+  const state = g();
+  const alive = alivePlayers();
+  const u = aliveWithRole('witch')[0];
+  const p = state.players[u];
+  const usedAny = p.witchHealUsed || p.witchKillUsed;
+  const payload = {
+    step: 'witch', round: state.round, options: alive,
+    canHeal: !p.witchHealUsed, canKill: !p.witchKillUsed,
+    usedAny,
+    message: usedAny
+      ? 'Bạn có thể dùng nốt bình còn lại, hoặc bấm "Xong" để kết thúc lượt.'
+      : 'Bạn có thể cứu, giết, hoặc không làm gì. Bạn KHÔNG biết đêm nay có ai bị cắn hay không.'
+  };
+  state.turnPayloadByUser[u] = payload;
+  emitTo(u, 'your_turn', payload);
 }
 
 function resolveNight() {
@@ -232,14 +245,13 @@ function resolveNight() {
       convertedUsername = state.wolfTarget;
     } else {
       const protectedByGuard = state.guardChosenTarget === state.wolfTarget;
-      const savedByWitch = state.witchAction && state.witchAction.type === 'heal'
-        && state.witchAction.target === state.wolfTarget;
+      const savedByWitch = state.witchActions.some((a) => a.type === 'heal' && a.target === state.wolfTarget);
       if (!protectedByGuard && !savedByWitch) deaths.add(state.wolfTarget);
     }
   }
 
-  if (state.witchAction && state.witchAction.type === 'kill') {
-    deaths.add(state.witchAction.target); // phù thủy giết: bảo vệ không chặn được
+  for (const a of state.witchActions) {
+    if (a.type === 'kill') deaths.add(a.target); // phù thủy giết: bảo vệ không chặn được
   }
 
   // Thợ săn: nếu người bị nối chết trong đêm này, người bị kéo theo chắc chắn chết
@@ -427,6 +439,13 @@ function syncStateToUser(username) {
   if (!p) return;
   emitTo(username, 'your_role', { role: p.role, label: ROLE_META[p.role].label, team: ROLE_META[p.role].team });
   broadcastPhaseUpdate();
+
+  // Đồng bộ lại đầy đủ ai còn sống / đã chết cho user này (quan trọng khi reload trang
+  // hoặc khi socket reconnect ngầm, tránh hiển thị sai "mọi người còn sống").
+  emitTo(username, 'game_snapshot', {
+    deadPlayers: Object.keys(state.players).filter((u) => !state.players[u].alive),
+  });
+
   if (state.status === 'day_vote') {
     emitTo(username, 'day_vote_open', { alive: alivePlayers(), round: state.round });
   } else if (state.status === 'day_execute') {
@@ -497,7 +516,7 @@ io.on('connection', (socket) => {
       status: 'night', round: 1, players,
       nightStep: null, pendingSteps: [],
       wolfVotes: {}, wolfTarget: null,
-      witchAction: null, guardChosenTarget: null,
+      witchActions: [], guardChosenTarget: null,
       dayVotes: {}, executeVotes: {}, accusedUsername: null,
       turnPayloadByUser: {}, winner: null, lastNightDeaths: [], lastConverted: null,
       pendingHunterExecuteDrag: null,
@@ -582,15 +601,23 @@ io.on('connection', (socket) => {
     if (type === 'heal') {
       if (p.witchHealUsed || !state.players[target] || !state.players[target].alive) return;
       p.witchHealUsed = true;
-      state.witchAction = { type: 'heal', target };
+      state.witchActions.push({ type: 'heal', target });
     } else if (type === 'kill') {
       if (p.witchKillUsed || !state.players[target] || !state.players[target].alive) return;
       p.witchKillUsed = true;
-      state.witchAction = { type: 'kill', target };
+      state.witchActions.push({ type: 'kill', target });
     } else if (type === 'pass') {
-      // không làm gì
+      // Kết thúc lượt ngay, dù đã dùng bình nào hay chưa
+      advanceNightStep();
+      return;
     } else return;
-    advanceNightStep();
+
+    // Còn bình chưa dùng -> cho phù thủy hành động tiếp trong cùng lượt
+    if (!p.witchHealUsed || !p.witchKillUsed) {
+      sendWitchTurnNotice();
+    } else {
+      advanceNightStep();
+    }
   });
 
   // ---------- Day actions ----------
@@ -614,6 +641,13 @@ io.on('connection', (socket) => {
     io.emit('execute_vote_update', { votes: state.executeVotes });
     const alive = alivePlayers();
     if (alive.every((a) => state.executeVotes[a])) tallyExecuteVotes();
+  });
+
+  socket.on('host_end_game', () => {
+    const u = socket.data.username;
+    if (!u || u !== room.hostUsername) return;
+    room.game = null; // giữ nguyên room.config để chơi lại nhanh với cấu hình cũ nếu muốn
+    broadcastLobby();
   });
 
   socket.on('host_reset_game', () => {
